@@ -36,6 +36,7 @@ import yaml
 from colorlight import Colorlight5A75B
 from renderer import DisplayRenderer
 from mqtt_bridge import HAMQTTBridge
+from spectrum import SpectrumAnalyzer
 
 # ── Logging ────────────────────────────────────────────────
 logging.basicConfig(
@@ -98,8 +99,18 @@ class LEDPanelApp:
             on_brightness=self._handle_brightness,
         )
 
+        # Spectrum analyzer
+        spectrum_cfg = self.config.get("spectrum", {})
+        # Bar count: with 2px bars + 1px gap on 344px wide display = 172 bars
+        n_bars = spectrum_cfg.get("bars", self.width // 2)
+        self.spectrum = SpectrumAnalyzer(
+            n_bars=n_bars,
+            display_height=self.height,
+            device_index=spectrum_cfg.get("device_index"),
+        )
+
         # State
-        self._current_mode = "clock"  # Default mode
+        self._current_mode = "spectrum"  # Default mode: spectrum analyzer
         self._current_params: Dict[str, Any] = {}
         self._running = False
         self._lock = threading.Lock()
@@ -121,10 +132,17 @@ class LEDPanelApp:
         """Handle incoming MQTT command."""
         with self._lock:
             mode = command.get("mode", "text")
+            old_mode = self._current_mode
             self._current_mode = mode
             self._current_params = command
             self.renderer.reset_scroll()
             self.renderer._frame_count = 0
+
+            # Start/stop spectrum analyzer as needed
+            if mode == "spectrum" and not self.spectrum.is_running:
+                self.spectrum.start()
+            elif mode != "spectrum" and old_mode == "spectrum":
+                self.spectrum.stop()
 
             logger.info(f"Mode changed to: {mode}")
 
@@ -148,6 +166,12 @@ class LEDPanelApp:
         try:
             if mode == "off":
                 return self.renderer.render_solid("#000000")
+
+            elif mode == "spectrum":
+                bars, peaks = self.spectrum.get_bars()
+                return self.renderer.render_spectrum(
+                    bars, peaks, is_boot=self.spectrum.is_boot
+                )
 
             elif mode == "text":
                 return self.renderer.render_text(
@@ -244,8 +268,12 @@ class LEDPanelApp:
         # Set startup mode
         startup = self.config.get("modes", {}).get("startup", {})
         if startup:
-            self._current_mode = startup.get("type", "text")
+            self._current_mode = startup.get("type", "spectrum")
             self._current_params = startup
+
+        # Auto-start spectrum if that's the mode
+        if self._current_mode == "spectrum":
+            self.spectrum.start()
 
         self._running = True
         logger.info(f"Running at {self._target_fps} FPS")
@@ -289,6 +317,11 @@ class LEDPanelApp:
         """Clean shutdown."""
         self._running = False
         logger.info("Shutting down...")
+
+        try:
+            self.spectrum.stop()
+        except Exception:
+            pass
 
         try:
             self.mqtt.disconnect()

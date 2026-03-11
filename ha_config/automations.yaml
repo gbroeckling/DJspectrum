@@ -10,7 +10,23 @@
 #   ledpanel/available        - online/offline
 # ============================================================
 
-# ── 1. Show clock during the day ───────────────────────────
+# ── 1. Spectrum mode (default at startup) ─────────────────
+- id: ledpanel_spectrum_mode
+  alias: "LED Panel - Spectrum Analyzer"
+  trigger:
+    - platform: time
+      at: "18:00:00"
+  action:
+    - action: mqtt.publish
+      data:
+        topic: "ledpanel/command"
+        payload: '{"mode": "spectrum"}'
+    - action: mqtt.publish
+      data:
+        topic: "ledpanel/brightness/set"
+        payload: "128"
+
+# ── 2. Show clock during the day ───────────────────────────
 - id: ledpanel_daytime_clock
   alias: "LED Panel - Daytime Clock"
   trigger:

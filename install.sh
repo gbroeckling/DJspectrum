@@ -33,6 +33,8 @@ apt-get install -y -qq \
     python3-venv \
     python3-dev \
     python3-pip \
+    python3-pyaudio \
+    portaudio19-dev \
     fonts-dejavu-core \
     ethtool \
     net-tools

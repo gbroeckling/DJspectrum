@@ -409,6 +409,131 @@ class DisplayRenderer:
 
         return self._image_to_array(img)
 
+    # ── Spectrum Analyzer ──────────────────────────────────
+
+    def render_spectrum(
+        self,
+        bars: np.ndarray,
+        peaks: np.ndarray,
+        is_boot: bool = False,
+    ) -> np.ndarray:
+        """
+        Render spectrum analyzer bars — pixel-exact port of the ESP32
+        HUB75 display lambda from gbroeckling/Spectrum.
+
+        Gradient: Red → Orange → Yellow → Green → Cyan → Blue
+        Bottom fade (stronger on tall bars, very dim pixels skipped)
+        Purple shift near bar tops (stronger on tall bars)
+        White peak dots
+
+        Args:
+            bars:    numpy array of bar heights (0..display_height)
+            peaks:   numpy array of peak positions (0..display_height)
+            is_boot: True during boot animation (no bar spacing)
+
+        Returns:
+            numpy array (height, width, 3) uint8
+        """
+        w = self.width
+        h = self.height
+        n_bars = len(bars)
+        pixels = np.zeros((h, w, 3), dtype=np.uint8)
+
+        bar_w = max(1, w // n_bars)
+        draw_w = bar_w if is_boot else max(1, bar_w - 1)
+
+        def lerp8(a, b, u):
+            u = max(0.0, min(1.0, u))
+            return int(a + (b - a) * u + 0.5)
+
+        # 6-stop gradient: Red → Orange → Yellow → Green → Cyan → Blue
+        R = [255, 255, 255,   0,   0,   0]
+        G = [  0, 128, 255, 255, 255,   0]
+        B = [  0,   0,   0,   0, 255, 255]
+
+        for i in range(n_bars):
+            bh = int(bars[i])
+            pk = int(peaks[i])
+            bh = max(0, min(bh, h))
+            pk = max(0, min(pk, h))
+
+            x = i * bar_w
+            if x >= w:
+                break
+            ww = min(draw_w, w - x)
+            if ww <= 0:
+                continue
+
+            # Base color for this bar position
+            t = i / max(1, n_bars - 1)
+            p = t * 5.0
+            seg = int(p)
+            u = p - seg
+            if seg < 0:
+                seg, u = 0, 0.0
+            if seg > 4:
+                seg, u = 4, 1.0
+            base_r = lerp8(R[seg], R[seg + 1], u)
+            base_g = lerp8(G[seg], G[seg + 1], u)
+            base_b = lerp8(B[seg], B[seg + 1], u)
+
+            if bh > 0:
+                strength = bh / h
+                fade = min(bh, 6 + int(bh * 64.0 / h))
+                min_scale = (0.20 - 0.12 * strength) / 8.0
+                if min_scale < 0.015:
+                    min_scale = 0.015
+
+                for yy in range(bh):
+                    y = h - 1 - yy
+
+                    # Bottom fade
+                    s = 1.0
+                    if yy < fade:
+                        uf = yy / max(1, fade - 1)
+                        s = min_scale + (1.0 - min_scale) * uf
+                    if s < 0.09:
+                        continue
+
+                    # Purple shift near bar top
+                    ubar = yy / max(1, bh - 1)
+                    pmix = (ubar - 0.70) / 0.30
+                    pmix = max(0.0, min(1.0, pmix))
+                    pmix = pmix * pmix * strength
+
+                    r0 = int(base_r * s)
+                    g0 = int(base_g * s)
+                    b0 = int(base_b * s)
+
+                    pr = int(255.0 * s)
+                    pg = 0
+                    pb = int(255.0 * s)
+
+                    fr = lerp8(r0, pr, pmix)
+                    fg = lerp8(g0, pg, pmix)
+                    fb = lerp8(b0, pb, pmix)
+
+                    pixels[y, x:x + ww, 0] = fr
+                    pixels[y, x:x + ww, 1] = fg
+                    pixels[y, x:x + ww, 2] = fb
+
+            # Peak dot (white)
+            if pk > 0:
+                py = h - pk - 1
+                if py < 0:
+                    py = 0
+                pixels[py, x:x + ww, 0] = 255
+                pixels[py, x:x + ww, 1] = 255
+                pixels[py, x:x + ww, 2] = 255
+
+        # Status indicator (top-right corner)
+        if is_boot:
+            pixels[0:2, w - 2:w, 0] = 255  # red
+        else:
+            pixels[0:2, w - 2:w, 1] = 255  # green
+
+        return pixels
+
     # ── Progress Bar ───────────────────────────────────────
 
     def render_progress(

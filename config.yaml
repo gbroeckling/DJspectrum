@@ -30,14 +30,18 @@ mqtt:
   discovery: true          # Enable HA MQTT auto-discovery
   ha_discovery_prefix: "homeassistant"
 
+# -- Spectrum Analyzer (audio input) --
+spectrum:
+  # bars: auto-calculated from display width (344 / 2 = 172 bars)
+  # device_index: null     # null = auto-detect USB/mic, or set to specific PyAudio device index
+  # Run `python3 spectrum.py` to list available audio devices
+
 # -- Display Modes --
 modes:
   startup:
-    type: text
-    message: "LED Panel Online"
-    font_size: 20
-    color: "#00FF00"
-    scroll: false
+    type: spectrum
+    # Boots into spectrum analyzer by default
+    # Switch modes via MQTT: {"mode": "clock"}, {"mode": "spectrum"}, etc.
 
   clock:
     type: clock
