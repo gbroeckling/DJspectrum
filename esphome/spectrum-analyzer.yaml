@@ -1,0 +1,348 @@
+# DJspectrum — ESP32-S3 + dual HUB75 128x64 panels (256 x 64)
+# Modes: spectrum (default), text, clock, scroll, alert, progress, sensors, off
+
+esphome:
+  name: spectrum-analyzer
+  friendly_name: Spectrum Analyzer
+  includes:
+    - spectrum_includes.h
+  platformio_options:
+    lib_deps:
+      - kosme/arduinoFFT@^1.6.2
+    build_flags:
+      - -O3
+  on_boot:
+    priority: 600
+    then:
+      - lambda: |-
+          for (size_t i = 0; i < 128; i++) {
+            id(bars)[i] = 0;
+            id(peaks)[i] = 0;
+          }
+          id(ref_level) = 0.10f;
+          id(boot_anim) = true;
+          id(boot_until_ms) = millis() + 6000;
+          spectrum::i2s_init_mic(GPIO_NUM_41, GPIO_NUM_42, GPIO_NUM_40);
+
+esp32:
+  board: esp32-s3-devkitc-1
+  framework:
+    type: arduino
+
+logger:
+  level: DEBUG
+
+api:
+  encryption:
+    key: "qLuDfR6gML5OIgdpNojBdtX42voeSxTXy2ZNMRLcbRI="
+  reboot_timeout: 0s
+  on_client_connected:
+    then:
+      - lambda: |-
+          id(boot_anim) = false;
+  on_client_disconnected:
+    then:
+      - lambda: |-
+          id(boot_anim) = true;
+          id(boot_until_ms) = millis() + 6000;
+
+ota:
+  - platform: esphome
+    password: "a5f74b6555d2ce6dd6f4a09d7a657c02"
+
+wifi:
+  ssid: "Britannia-N"
+  password: "78000000000000000000000078"
+  ap:
+    ssid: "Spectrum-Analyzer"
+    password: "5tO4kj7N55JE"
+
+captive_portal:
+
+psram:
+  mode: octal
+  speed: 80MHz
+
+time:
+  - platform: homeassistant
+    id: ha_time
+
+# ── Fonts ──────────────────────────────────────────────────────────────────────
+font:
+  - file: "gfonts://Roboto Mono"
+    id: font_big
+    size: 32
+    glyphs: '0123456789:.- ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz!?%°/()+'
+  - file: "gfonts://Roboto Mono"
+    id: font_med
+    size: 20
+    glyphs: '0123456789:.- ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz!?%°/()+'
+  - file: "gfonts://Roboto Mono"
+    id: font_sm
+    size: 14
+    glyphs: '0123456789:.- ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz!?%°/()+'
+
+# ── Globals ────────────────────────────────────────────────────────────────────
+globals:
+  - id: bars
+    type: std::array<uint8_t, 128>
+    restore_value: no
+    initial_value: "{0}"
+
+  - id: peaks
+    type: std::array<uint8_t, 128>
+    restore_value: no
+    initial_value: "{0}"
+
+  - id: ref_level
+    type: float
+    restore_value: no
+    initial_value: "0.10"
+
+  - id: boot_anim
+    type: bool
+    restore_value: no
+    initial_value: "true"
+
+  - id: boot_until_ms
+    type: uint32_t
+    restore_value: no
+    initial_value: "0"
+
+# ── FFT update interval ───────────────────────────────────────────────────────
+interval:
+  - interval: 40ms
+    then:
+      - lambda: |-
+          // Only run FFT when in spectrum or boot mode
+          auto mode = id(display_mode).state;
+          if (mode != "spectrum" && !id(boot_anim)) return;
+
+          if (id(boot_anim)) {
+            if ((int32_t)(id(boot_until_ms) - millis()) > 0) {
+              spectrum::boot_animation_update(id(bars), id(peaks));
+              return;
+            } else {
+              id(boot_anim) = false;
+            }
+          }
+          spectrum::fft_update(id(bars), id(peaks), id(ref_level));
+
+# ── HA-exposed controls ───────────────────────────────────────────────────────
+select:
+  - platform: template
+    name: "Display Mode"
+    id: display_mode
+    options:
+      - "spectrum"
+      - "text"
+      - "clock"
+      - "scroll"
+      - "alert"
+      - "progress"
+      - "sensors"
+      - "off"
+    initial_option: "spectrum"
+    optimistic: true
+    on_value:
+      then:
+        - lambda: |-
+            spectrum::scroll_offset = 0;
+            spectrum::scroll_inited = false;
+            spectrum::alert_frame = 0;
+
+number:
+  - platform: template
+    name: "Brightness"
+    id: panel_brightness
+    min_value: 0
+    max_value: 255
+    step: 1
+    initial_value: 96
+    optimistic: true
+    on_value:
+      then:
+        - lambda: |-
+            id(matrix).set_brightness((uint8_t) x);
+
+  - platform: template
+    name: "Scroll Speed"
+    id: scroll_speed
+    min_value: 1
+    max_value: 8
+    step: 1
+    initial_value: 2
+    optimistic: true
+
+  - platform: template
+    name: "Progress Value"
+    id: progress_value
+    min_value: 0
+    max_value: 100
+    step: 0.5
+    initial_value: 0
+    optimistic: true
+
+text:
+  - platform: template
+    name: "Display Text"
+    id: display_text
+    mode: text
+    initial_value: "DJspectrum"
+    optimistic: true
+
+  - platform: template
+    name: "Alert Text"
+    id: alert_text
+    mode: text
+    initial_value: "ALERT!"
+    optimistic: true
+
+  - platform: template
+    name: "Progress Label"
+    id: progress_label
+    mode: text
+    initial_value: "Progress"
+    optimistic: true
+
+switch:
+  - platform: template
+    name: "Show Date"
+    id: show_date
+    optimistic: true
+
+# ── Sensor inputs (populated by HA automations) ──────────────────────────────
+text_sensor:
+  - platform: template
+    name: "Sensor 1 Label"
+    id: sensor1_label
+  - platform: template
+    name: "Sensor 1 Value"
+    id: sensor1_value
+  - platform: template
+    name: "Sensor 2 Label"
+    id: sensor2_label
+  - platform: template
+    name: "Sensor 2 Value"
+    id: sensor2_value
+  - platform: template
+    name: "Sensor 3 Label"
+    id: sensor3_label
+  - platform: template
+    name: "Sensor 3 Value"
+    id: sensor3_value
+  - platform: template
+    name: "Sensor 4 Label"
+    id: sensor4_label
+  - platform: template
+    name: "Sensor 4 Value"
+    id: sensor4_value
+
+# ── Display: dual 128x64 HUB75 = 256 x 64 ────────────────────────────────────
+display:
+  - platform: hub75
+    id: matrix
+    panel_width: 128
+    panel_height: 64
+    chain_length: 2
+    shift_driver: FM6126A
+
+    r1_pin: GPIO4
+    g1_pin: GPIO5
+    b1_pin: GPIO6
+    r2_pin: GPIO7
+    g2_pin: GPIO8
+    b2_pin: GPIO9
+
+    a_pin: GPIO10
+    b_pin: GPIO11
+    c_pin: GPIO12
+    d_pin: GPIO13
+    e_pin: GPIO14
+
+    clk_pin: GPIO15
+    lat_pin: GPIO16
+    oe_pin: GPIO17
+
+    brightness: 96
+    bit_depth: 5
+    gamma_correct: CIE1931
+    update_interval: 16ms
+
+    lambda: |-
+      it.clear();
+      auto mode = id(display_mode).state;
+
+      // ── boot animation overrides everything ──
+      if (id(boot_anim)) {
+        spectrum::draw_spectrum(it, id(bars), id(peaks), true);
+        it.filled_rectangle(it.get_width() - 2, 0, 2, 2, Color(255, 0, 0));
+        return;
+      }
+
+      // ── mode dispatch ──
+      if (mode == "spectrum") {
+        spectrum::draw_spectrum(it, id(bars), id(peaks), false);
+        it.filled_rectangle(it.get_width() - 2, 0, 2, 2, Color(0, 255, 0));
+
+      } else if (mode == "text") {
+        spectrum::draw_text_centered(it, id(font_big),
+          id(display_text).state.c_str(),
+          Color(255, 255, 255));
+
+      } else if (mode == "clock") {
+        spectrum::draw_clock(it, id(font_big), id(font_med),
+          Color(255, 255, 255), id(show_date).state);
+
+      } else if (mode == "scroll") {
+        spectrum::draw_scroll(it, id(font_med),
+          id(display_text).state.c_str(),
+          Color(255, 255, 0),
+          (int) id(scroll_speed).state);
+
+      } else if (mode == "alert") {
+        spectrum::draw_alert(it, id(font_big),
+          id(alert_text).state.c_str(),
+          Color(255, 0, 0));
+
+      } else if (mode == "progress") {
+        spectrum::draw_progress(it, id(font_med),
+          id(progress_label).state.c_str(),
+          id(progress_value).state, 100.0f,
+          Color(0, 200, 0), Color(255, 255, 255));
+
+      } else if (mode == "sensors") {
+        const char* labels[4];
+        const char* values[4];
+        int count = 0;
+        if (id(sensor1_label).has_state() && id(sensor1_label).state.length() > 0) {
+          labels[count] = id(sensor1_label).state.c_str();
+          values[count] = id(sensor1_value).has_state() ? id(sensor1_value).state.c_str() : "—";
+          count++;
+        }
+        if (id(sensor2_label).has_state() && id(sensor2_label).state.length() > 0) {
+          labels[count] = id(sensor2_label).state.c_str();
+          values[count] = id(sensor2_value).has_state() ? id(sensor2_value).state.c_str() : "—";
+          count++;
+        }
+        if (id(sensor3_label).has_state() && id(sensor3_label).state.length() > 0) {
+          labels[count] = id(sensor3_label).state.c_str();
+          values[count] = id(sensor3_value).has_state() ? id(sensor3_value).state.c_str() : "—";
+          count++;
+        }
+        if (id(sensor4_label).has_state() && id(sensor4_label).state.length() > 0) {
+          labels[count] = id(sensor4_label).state.c_str();
+          values[count] = id(sensor4_value).has_state() ? id(sensor4_value).state.c_str() : "—";
+          count++;
+        }
+        if (count > 0) {
+          spectrum::draw_sensors(it, id(font_med), id(font_sm),
+            labels, values, count,
+            Color(0, 200, 255), Color(255, 255, 255));
+        } else {
+          spectrum::draw_text_centered(it, id(font_sm), "No sensor data", Color(128, 128, 128));
+        }
+
+      } else if (mode == "off") {
+        // Already cleared
+      }
