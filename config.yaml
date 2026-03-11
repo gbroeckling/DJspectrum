@@ -1,0 +1,66 @@
+# ============================================================
+# LED Panel Configuration - Colorlight 5A-75B + P1.86 Panels
+# ============================================================
+
+# -- Display Layout --
+display:
+  # Two P1.86 panels (172x86 each), side by side
+  panel_width: 172         # Single panel pixel width
+  panel_height: 86         # Single panel pixel height
+  chain_length: 2          # Number of panels daisy-chained
+  layout: horizontal       # horizontal = side-by-side (344x86), vertical = stacked (172x172)
+  # Total resolution: 344x86 (horizontal) or 172x172 (vertical)
+
+# -- Colorlight 5A-75B --
+colorlight:
+  interface: eth0          # Network interface connected to 5A-75B (MUST be Gigabit)
+  dst_mac: "11:22:33:44:55:66"   # Colorlight default destination MAC
+  src_mac: "22:22:33:44:55:66"   # Source MAC (can be anything)
+  brightness: 128          # 0-255, initial brightness
+  fps: 30                  # Target frames per second
+  gamma: 2.2               # Gamma correction (1.0 = off, 2.2 = typical)
+
+# -- Home Assistant MQTT --
+mqtt:
+  broker: "192.168.1.100"  # Your Home Assistant IP address
+  port: 1883
+  username: "mqtt_user"    # Your MQTT username
+  password: "mqtt_pass"    # Your MQTT password
+  topic_prefix: "ledpanel" # Base topic: ledpanel/command, ledpanel/state, etc.
+  discovery: true          # Enable HA MQTT auto-discovery
+  ha_discovery_prefix: "homeassistant"
+
+# -- Display Modes --
+modes:
+  startup:
+    type: text
+    message: "LED Panel Online"
+    font_size: 20
+    color: "#00FF00"
+    scroll: false
+
+  clock:
+    type: clock
+    format: "%H:%M:%S"
+    font_size: 32
+    color: "#FFFFFF"
+    bg_color: "#000000"
+
+  sensor:
+    type: sensor
+    font_size: 18
+    color: "#00FFFF"
+    bg_color: "#000000"
+    # Sensors to display are sent via MQTT
+
+  scroll_text:
+    type: scroll
+    speed: 2                # Pixels per frame
+    font_size: 24
+    color: "#FFFF00"
+    bg_color: "#000000"
+
+# -- Fonts --
+fonts:
+  default: "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
+  mono: "/usr/share/fonts/truetype/dejavu/DejaVuSansMono-Bold.ttf"

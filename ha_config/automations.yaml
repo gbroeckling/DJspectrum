@@ -1,0 +1,210 @@
+# ============================================================
+# Home Assistant Automation Examples for LED Panel
+# ============================================================
+# Add these to your automations.yaml or create via HA UI
+#
+# MQTT Topic Reference:
+#   ledpanel/command          - Send JSON commands
+#   ledpanel/brightness/set   - Set brightness (0-255)
+#   ledpanel/state            - Read current state
+#   ledpanel/available        - online/offline
+# ============================================================
+
+# ── 1. Show clock during the day ───────────────────────────
+- id: ledpanel_daytime_clock
+  alias: "LED Panel - Daytime Clock"
+  trigger:
+    - platform: time
+      at: "07:00:00"
+  action:
+    - action: mqtt.publish
+      data:
+        topic: "ledpanel/command"
+        payload: >
+          {
+            "mode": "clock",
+            "format": "%H:%M",
+            "font_size": 36,
+            "color": "#FFFFFF",
+            "show_date": true,
+            "date_font_size": 14
+          }
+    - action: mqtt.publish
+      data:
+        topic: "ledpanel/brightness/set"
+        payload: "180"
+
+# ── 2. Dim at night ────────────────────────────────────────
+- id: ledpanel_night_dim
+  alias: "LED Panel - Night Dim"
+  trigger:
+    - platform: time
+      at: "22:00:00"
+  action:
+    - action: mqtt.publish
+      data:
+        topic: "ledpanel/brightness/set"
+        payload: "30"
+
+# ── 3. Turn off at bedtime ─────────────────────────────────
+- id: ledpanel_bedtime_off
+  alias: "LED Panel - Bedtime Off"
+  trigger:
+    - platform: time
+      at: "23:30:00"
+  action:
+    - action: mqtt.publish
+      data:
+        topic: "ledpanel/command"
+        payload: '{"mode": "off"}'
+
+# ── 4. Door open alert ─────────────────────────────────────
+- id: ledpanel_door_alert
+  alias: "LED Panel - Door Open Alert"
+  trigger:
+    - platform: state
+      entity_id: binary_sensor.front_door
+      to: "on"
+  action:
+    - action: mqtt.publish
+      data:
+        topic: "ledpanel/command"
+        payload: >
+          {
+            "mode": "alert",
+            "text": "FRONT DOOR OPEN",
+            "color": "#FF0000",
+            "font_size": 22
+          }
+    # Return to clock after 30 seconds
+    - delay:
+        seconds: 30
+    - action: mqtt.publish
+      data:
+        topic: "ledpanel/command"
+        payload: '{"mode": "clock"}'
+
+# ── 5. Temperature display from sensor ─────────────────────
+- id: ledpanel_show_sensors
+  alias: "LED Panel - Show Sensors"
+  trigger:
+    - platform: time_pattern
+      minutes: "/5"  # Every 5 minutes
+  condition:
+    - condition: time
+      after: "07:00:00"
+      before: "22:00:00"
+  action:
+    - action: mqtt.publish
+      data:
+        topic: "ledpanel/command"
+        payload_template: >
+          {
+            "mode": "sensors",
+            "data": {
+              "Outside": "{{ states('sensor.outdoor_temperature') }}°C",
+              "Inside": "{{ states('sensor.indoor_temperature') }}°C",
+              "Humidity": "{{ states('sensor.indoor_humidity') }}%",
+              "CO2": "{{ states('sensor.co2') }}ppm"
+            },
+            "font_size": 16,
+            "value_color": "#00FFFF"
+          }
+    # Switch back to clock after 30 seconds
+    - delay:
+        seconds: 30
+    - action: mqtt.publish
+      data:
+        topic: "ledpanel/command"
+        payload: '{"mode": "clock"}'
+
+# ── 6. Scrolling notification from HA ──────────────────────
+- id: ledpanel_scroll_notification
+  alias: "LED Panel - Scroll Notification"
+  trigger:
+    - platform: event
+      event_type: ledpanel_notify
+  action:
+    - action: mqtt.publish
+      data:
+        topic: "ledpanel/command"
+        payload_template: >
+          {
+            "mode": "scroll",
+            "text": "{{ trigger.event.data.message }}",
+            "speed": 2,
+            "font_size": 24,
+            "color": "{{ trigger.event.data.color | default('#FFFF00') }}"
+          }
+    - delay:
+        seconds: "{{ trigger.event.data.duration | default(20) }}"
+    - action: mqtt.publish
+      data:
+        topic: "ledpanel/command"
+        payload: '{"mode": "clock"}'
+
+# ── 7. Weather alert ───────────────────────────────────────
+- id: ledpanel_weather_alert
+  alias: "LED Panel - Weather Alert"
+  trigger:
+    - platform: state
+      entity_id: weather.home
+  condition:
+    - condition: template
+      value_template: >
+        {{ trigger.to_state.attributes.get('weather_alert', false) }}
+  action:
+    - action: mqtt.publish
+      data:
+        topic: "ledpanel/command"
+        payload_template: >
+          {
+            "mode": "scroll",
+            "text": "WEATHER: {{ states('weather.home') | upper }}",
+            "speed": 1,
+            "color": "#FF8800",
+            "font_size": 22
+          }
+
+# ── 8. Welcome home message ────────────────────────────────
+- id: ledpanel_welcome_home
+  alias: "LED Panel - Welcome Home"
+  trigger:
+    - platform: state
+      entity_id: person.garry
+      to: "home"
+  action:
+    - action: mqtt.publish
+      data:
+        topic: "ledpanel/command"
+        payload: >
+          {
+            "mode": "text",
+            "text": "Welcome Home!",
+            "font_size": 28,
+            "color": "#00FF00"
+          }
+    - delay:
+        seconds: 15
+    - action: mqtt.publish
+      data:
+        topic: "ledpanel/command"
+        payload: '{"mode": "clock"}'
+
+
+# ============================================================
+# HELPER: Fire custom events to send arbitrary messages
+# ============================================================
+# From HA Developer Tools > Events, or from any automation:
+#
+#   event: ledpanel_notify
+#   event_data:
+#     message: "Package delivered!"
+#     color: "#00FF00"
+#     duration: 15
+#
+# From HA scripts:
+#   - event: ledpanel_notify
+#     event_data:
+#       message: "{{ message }}"
+# ============================================================
